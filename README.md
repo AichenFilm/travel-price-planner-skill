@@ -51,8 +51,10 @@ This skill does not book, pay, log in, enter personal data, store credentials, b
 
 ```bash
 python3 -m unittest discover -s tests
-python3 ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py travel-price-planner
 ```
+
+If you have Codex `skill-creator` installed locally, you can also run its
+`quick_validate.py` script against the `travel-price-planner` folder.
 
 ## License
 

@@ -100,6 +100,32 @@ class NormalizeTravelQuotesTest(unittest.TestCase):
         self.assertEqual(tiers["Unknown reseller"], "avoid")
         self.assertEqual(tiers["Separate tickets"], "cheaper but risky")
 
+    def test_self_transfer_alone_is_never_recommended(self) -> None:
+        rows = [
+            {
+                "label": "Self transfer bargain",
+                "category": "flight",
+                "source": "Metasearch",
+                "currency": "EUR",
+                "total_price": "300",
+                "risk_flags": "self_transfer",
+            },
+            {
+                "label": "Protected official itinerary",
+                "category": "flight",
+                "source": "Airline",
+                "currency": "EUR",
+                "total_price": "600",
+                "risk_flags": "",
+                "booking_party": "Airline",
+            },
+        ]
+        quotes = [normalizer.normalize_row(row, "EUR", {}) for row in rows]
+        ranked = normalizer.rank_quotes(quotes)
+        tiers = {quote.label: quote.tier for quote in ranked}
+        self.assertEqual(tiers["Self transfer bargain"], "cheaper but risky")
+        self.assertEqual(tiers["Protected official itinerary"], "recommended")
+
     def test_money_formats_and_fx(self) -> None:
         row = {
             "label": "Dollar quote",
@@ -113,6 +139,53 @@ class NormalizeTravelQuotesTest(unittest.TestCase):
         quote = normalizer.normalize_row(row, "EUR", {"USD": 0.9})
         self.assertEqual(quote.total_cost_original, 1220.5)
         self.assertEqual(quote.total_cost_base, 1098.45)
+
+    def test_european_dot_thousands_money_format(self) -> None:
+        self.assertEqual(normalizer.parse_money("1.234"), 1234.0)
+        self.assertEqual(normalizer.parse_money("12.34"), 12.34)
+        self.assertEqual(normalizer.parse_money("1.234,56"), 1234.56)
+
+    def test_direct_booking_word_does_not_make_booking_party_ota(self) -> None:
+        rows = [
+            {
+                "label": "Marriott official",
+                "category": "hotel",
+                "source": "Marriott",
+                "currency": "EUR",
+                "total_price": "540",
+                "risk_flags": "",
+                "booking_party": "Marriott direct booking",
+            },
+            {
+                "label": "Booking.com cheaper",
+                "category": "hotel",
+                "source": "Booking.com",
+                "currency": "EUR",
+                "total_price": "500",
+                "risk_flags": "ota",
+                "booking_party": "Booking.com",
+            },
+        ]
+        quotes = [normalizer.normalize_row(row, "EUR", {}) for row in rows]
+        ranked = normalizer.rank_quotes(quotes, direct_margin=50)
+        tiers = {quote.label: quote.tier for quote in ranked}
+        self.assertEqual(tiers["Marriott official"], "recommended")
+        self.assertEqual(tiers["Booking.com cheaper"], "cheapest acceptable")
+
+    def test_manual_negative_risk_score_cannot_cancel_flags(self) -> None:
+        row = {
+            "label": "Self transfer with bad manual score",
+            "category": "flight",
+            "source": "Metasearch",
+            "currency": "EUR",
+            "total_price": "300",
+            "risk_flags": "self_transfer",
+            "risk_score": "-10",
+        }
+        quote = normalizer.normalize_row(row, "EUR", {})
+        self.assertEqual(quote.risk_score, 5)
+        normalizer.rank_quotes([quote])
+        self.assertEqual(quote.tier, "cheaper but risky")
 
     def test_unknown_flag_fails(self) -> None:
         row = {

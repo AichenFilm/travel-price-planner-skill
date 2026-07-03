@@ -59,7 +59,7 @@ MONEY_FIELDS = [
 
 OTA_SOURCE_HINTS = {
     "agoda",
-    "booking",
+    "booking.com",
     "ctrip",
     "expedia",
     "google flights",
@@ -129,7 +129,22 @@ def parse_money(value: str | None) -> float:
         comma_tail = cleaned.rsplit(",", 1)[-1]
         cleaned = cleaned.replace(",", ".") if len(comma_tail) == 2 else cleaned.replace(",", "")
     else:
-        cleaned = cleaned.replace(",", "")
+        unsigned = cleaned
+        sign = ""
+        if unsigned.startswith(("+", "-")):
+            sign = unsigned[0]
+            unsigned = unsigned[1:]
+        dot_parts = unsigned.split(".")
+        if (
+            "." in unsigned
+            and 1 <= len(dot_parts[0]) <= 3
+            and len(dot_parts) > 1
+            and all(part.isdigit() for part in dot_parts)
+            and all(len(part) == 3 for part in dot_parts[1:])
+        ):
+            cleaned = sign + "".join(dot_parts)
+        else:
+            cleaned = cleaned.replace(",", "")
     try:
         return float(cleaned)
     except ValueError as exc:
@@ -169,9 +184,16 @@ def should_avoid(score: int, flags: set[str]) -> bool:
 
 
 def is_high_risk(score: int, flags: set[str]) -> bool:
-    if flags & HARD_AVOID_FLAGS and score >= 6:
+    if flags & HARD_AVOID_FLAGS:
         return True
     return score >= 6
+
+
+def has_ota_hint(value: str) -> bool:
+    text = " ".join(value.lower().split())
+    if text in {"booking", "booking.com"}:
+        return True
+    return any(hint in text for hint in OTA_SOURCE_HINTS)
 
 
 def is_direct_booking(quote: NormalizedQuote) -> bool:
@@ -179,8 +201,8 @@ def is_direct_booking(quote: NormalizedQuote) -> bool:
         return False
     booking_party = quote.booking_party.lower()
     if booking_party:
-        return not any(hint in booking_party for hint in OTA_SOURCE_HINTS)
-    return not any(hint in quote.source.lower() for hint in OTA_SOURCE_HINTS)
+        return not has_ota_hint(booking_party)
+    return not has_ota_hint(quote.source)
 
 
 def unknown_flags(flags: list[str]) -> list[str]:
@@ -207,7 +229,7 @@ def normalize_row(row: dict[str, str], base_currency: str, fx: dict[str, float])
         raise ValueError(f"Unknown risk flag(s) for {label!r}: {', '.join(unknown)}. Allowed flags: {allowed}")
     score = sum(RISK_POINTS.get(flag, 0) for flag in flags)
     if row.get("risk_score"):
-        score += int(parse_money(row.get("risk_score")))
+        score += max(0, int(parse_money(row.get("risk_score"))))
 
     return NormalizedQuote(
         label=(row.get("label") or row.get("option") or "Unnamed option").strip(),
@@ -309,7 +331,7 @@ def markdown_cell(value: str) -> str:
 def write_csv(quotes: list[NormalizedQuote]) -> str:
     fieldnames = list(asdict(quotes[0]).keys()) if quotes else []
     output = sys.stdout
-    writer = csv.DictWriter(output, fieldnames=fieldnames)
+    writer = csv.DictWriter(output, fieldnames=fieldnames, lineterminator="\n")
     writer.writeheader()
     for quote in quotes:
         data = asdict(quote)
