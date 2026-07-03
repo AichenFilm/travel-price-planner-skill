@@ -1,0 +1,4 @@
+interface:
+  display_name: "Travel Price Planner"
+  short_description: "Compare travel options by total cost and risk"
+  default_prompt: "Use $travel-price-planner to compare flights, hotels, trains, or mixed travel options by total cost, booking path, and risk."
